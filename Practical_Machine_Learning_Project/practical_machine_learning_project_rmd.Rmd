@@ -1,0 +1,204 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Amitabh Mishra"
+date: "April 21, 2020"
+output:
+  word_document: default
+  html_document: default
+---
+## Introduction
+Human Activity Recognition (HAR) is an active area of research for monotoring human exercise activities facilitated by wearable and interconnected sensors (e.g.Accelerometers) on the body as well as on exercise equipment. In this project students are asked to analyse the HAR dataset using machine learning algorithms. There are many potential applications of HAR, e.g. elderley monitoring, life log monitoring for energy expenditure and supporting weight loss program, and digital assistants for weight lifting exercises and so on so forth. 
+
+The dataset for this project consists of five classes of activities such as sitting down, standing up, standing, walking ad sitting collected on 8 hour of activities of four healthy suspects.  The approach proposed in weight lifting exercises dataset is to investigate "how well" an activity was performed by the wearer. For this experiment six young health participants were asked to perform one set of 10 repetitions of the unilaterla Dumbbell Biceps Curl in five different fashions exactly according to the specifications. If subjects performed
+
+  1. Exactly according to the specification - (Class A) - correct
+  2. Throwing the elbows to the front (Class B) - mistake
+  3. Lifting the dumbbell only halfway (Class C) - mistake
+  4. Lowering the dumbbell only halfway (Class D) - mistake
+  5. Throwing the hips to the front (Class E) - mistake
+
+Accelerometers were located on (1) belt, (2) forearm, and (3) arm which took the measurements.
+
+For this assignment we are asked to create a report describing:
+
+  1. How the model was  built
+  2. how you used cross validation
+  3. what you think the expected out of sample error is
+  4. why you made the choices you did
+
+## Plan
+
+The model building used in this documnet follws the suggested model in the lectures. We begin by (1) identifying the questions that we would like model to provide answers for, (2) prepare the date for the analysis from the HAR dataset, (3) Choose appropriate algorithms which are capable of answering the questions, (4) Predict results, (5) Validate results, (6) Evaluate further if necessary. We use cross Validation for the trainControl function with 4 folds.
+The out of sample error was found to be 0.0037% when the model was applied to the test data derived from the training set.
+
+Model choices made at every step are described in this rmd file.
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Download the Data and Libraries
+Libraries that are needed for the project are caret, e1071, randomForest, and doParallel. Also 
+Suppressing the warning signs so that they do not appear in the project file that will be submitted.
+
+```{r, cache=FALSE}
+# training data
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv", "training.csv", method = "curl")
+#test data
+download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", "testing.csv", method = "curl")
+train <- read.csv("training.csv")
+test <- read.csv("testing.csv")
+
+```
+## LOad Libraries
+
+
+```{r message =FALSE}
+defaultW <- getOption("warn") 
+options(warn = -1) 
+library(doParallel)
+library(randomForest)
+library(e1071)
+library(caret)
+options(warn = defaultW)
+
+```
+ 
+On inspection in the input Excel files, found NA,#DIV/0! and blank values in the data. These are not valid observed values, so removing them with na.strings parameter andlisting the data size.
+
+```{r}
+#download.file(trainingUrl, trainingFilename)
+#download.file(quizUrl,quizFilename)
+trainingFilename  <- 'pml-training.csv'
+quizFilename      <- 'pml-testing.csv'
+```
+
+## Data Cleansing for Trainin Data 
+```{r}
+defaultW <- getOption("warn") 
+options(warn = -1) 
+set.seed(1603)
+training.df <- read.csv(trainingFilename, na.strings=c("NA","","#DIV/0!"))
+training.df <-training.df[,colSums(is.na(training.df)) == 0]
+plot(train$classe, xlab="Activity class", ylab="count", main="Distribution of Exercise Method", col=c("darkgoldenrod2","red","yellow","green","blue"))
+options(warn = defaultW)
+```
+```{r}
+dim(training.df)
+
+
+```
+
+
+
+We see that both the test and training data sets have the same column dimensions, with only the last column differing in name. For our training data set the last column is the "classe" variable, which is the variable that predicts the manner in which the participants do excercise. From the dataset documentation, we get that five different fashions of activity are: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E). For our testing set the last column is a problem id.
+
+In the plot, we can see that most activities are classified in class "A", which is performing the activity exactly as specified. 
+
+
+## Data Cleansing for Test Data
+```{r}
+quiz.df         <-read.csv(quizFilename , na.strings=c("NA", "", "#DIV/0!"))
+quiz.df         <-quiz.df[,colSums(is.na(quiz.df)) == 0]
+```
+
+# FEATURE REORGANIZATION
+Removing non-essentials predictors from the dataset.If you check the data files you will find  the index, subject name, time and window variables as predictors. Also checking and then removing near zero values in training data
+```{r}
+Training.df   <-training.df[,-c(1:7)]
+Quiz.df <-quiz.df[,-c(1:7)]
+Training.nzv<-nzv(Training.df[,-ncol(Training.df)],saveMetrics=TRUE)
+dim(Training.df)
+dim(Quiz.df)
+dim(Training.nzv) [1]
+
+```
+We find that there are seven such predictors which are now removed from the Training and Test Data files
+
+# MODEL DEVELOPMENT - SELECTION OF ALGORITHM
+Partition the training data into a training set and a testing/validation set.
+
+```{r}
+inTrain     <- createDataPartition(Training.df$classe, p = 0.6, list = FALSE)
+inTraining  <- Training.df[inTrain,]
+inTest      <- Training.df[-inTrain,]
+dim(inTraining);dim(inTest)
+```
+```{r}
+
+myModelFilename <- "myModel.RData"
+if (!file.exists(myModelFilename)) {
+
+    # Parallel cores  
+    #require(parallel)
+    library(doParallel)
+    ncores <- makeCluster(detectCores() - 1)
+    registerDoParallel(cores=ncores)
+    getDoParWorkers() # 3    
+    
+    # use Random Forest method with Cross Validation, 4 folds
+    myModel <- train(classe ~ .
+                , data = inTraining
+                , method = "rf"
+                , metric = "Accuracy"  # categorical outcome variable so choose accuracy
+                , preProcess=c("center", "scale") # attempt to improve accuracy by normalising
+                , trControl=trainControl(method = "cv"
+                                        , number = 4 # folds of the training data
+                                        , p= 0.60
+                                        , allowParallel = TRUE 
+#                                       , seeds=NA # don't let workers set seed 
+                                        )
+                )
+
+    save(myModel, file = "myModel.RData")
+    # 3:42 .. 3:49 without preProcess
+    # 3:51 .. 3:58 with preProcess
+    stopCluster(ncores)
+} else {
+    # Use cached model  
+    load(file = myModelFilename, verbose = TRUE)
+}
+
+
+```
+
+
+```{r}
+print(myModel, digits=5)
+```
+
+## Prediction
+Predicting the activity performed using the training file derived test subset
+```{r}
+predTest <- predict(myModel, newdata=inTest)
+```
+
+## Final Model Evluation and Selection
+
+```{r}
+confusionMatrix(predTest, inTest$classe)
+```
+
+Out of Sample Error for the model is 1 - Acuracy = 1 - 0.9946 = 0.0054 which is very small or equal to 0.54%. This accuracy level is within the 95% confidence interval <
+
+
+Accuracy is very high, at 0.9963, and this figure lies within the 95% confidence interval
+(0.9928, 0.9961).
+
+## Summary of Final Model
+```{r}
+myModel$finalModel
+```
+
+## Choosing the Most Important Variables of Random Forest Model
+```{r}
+varImp(myModel)
+```
+## Validation of Model Through Quiz
+```{r}
+print(predict(myModel, newdata=Quiz.df))
+```
+
+This answers are entered in the quiz for this assigment on the course website which accepted these values as correct to pass.
+
